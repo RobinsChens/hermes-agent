@@ -1228,6 +1228,24 @@ def terminal_tool(
 
         session_key = get_current_session_key(default="") or (task_id or "")
 
+        # A delegated subagent owns its OWN cwd record (its task_id), seeded by
+        # delegate_tool_child_run.seed_workspace — with an isolated worktree path
+        # when delegation.worktree_isolation is on. The approval/session key
+        # resolves to the PARENT's session here (the contextvar does not cross
+        # tool-worker threads and HERMES_SESSION_KEY is inherited from the parent
+        # process), so the parent's recorded cwd would shadow the child's own and
+        # silently run the child in the shared checkout instead of its worktree.
+        # In a delegated-child context the child's own task_id is the correct
+        # anchor; outside one, the parent session key stays authoritative.
+        if task_id:
+            try:
+                from agent.delegation_context import is_delegated_child_context
+
+                if is_delegated_child_context():
+                    session_key = task_id
+            except Exception:
+                pass
+
         # The supervised-gateway identity probe ends in a kernel process query
         # (psutil create_time) that has wedged for the better part of an hour on
         # macOS; ``env.execute`` is already behind ``run_bounded_sync`` but this
